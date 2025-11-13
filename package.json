@@ -1,5 +1,5 @@
 {
- "name": "ffmpeg-composer",
+  "name": "ffmpeg-composer",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
