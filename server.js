@@ -6,13 +6,36 @@ const fs = require('fs').promises;
 
 const execAsync = promisify(exec);
 const app = express();
-const upload = multer({ dest: '/tmp/' });
+
+const upload = multer({ 
+  dest: '/tmp/',
+  limits: { fileSize: 50 * 1024 * 1024 } 
+});
+
+// INCREASE REQUEST TIMEOUT
+app.use((req, res, next) => {
+  req.setTimeout(300000); 
+  res.setTimeout(300000); 
+  next();
+});
+
+// Enable CORS for n8n
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 app.get('/', (req, res) => {
   res.json({ 
     status: 'ok', 
     service: 'FFmpeg Video Composer',
-    provider: 'Railway (FREE)'
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
   });
 });
 
@@ -20,12 +43,21 @@ app.post('/compose', upload.fields([
   { name: 'video', maxCount: 1 },
   { name: 'audio', maxCount: 1 }
 ]), async (req, res) => {
+  const startTime = Date.now();
   let videoPath, audioPath, outputPath;
   
   try {
+    console.log('=== NEW REQUEST ===');
+    console.log('Files received:', {
+      video: req.files?.video?.[0]?.size || 0,
+      audio: req.files?.audio?.[0]?.size || 0
+    });
+    
     if (!req.files?.video || !req.files?.audio) {
+      console.error('Missing files!');
       return res.status(400).json({ 
-        error: 'Missing video or audio file' 
+        error: 'Missing video or audio file',
+        received: Object.keys(req.files || {})
       });
     }
 
@@ -34,6 +66,7 @@ app.post('/compose', upload.fields([
     outputPath = `/tmp/output_${Date.now()}.mp4`;
     
     const script = req.body.script || '';
+    console.log('Script length:', script.length);
     
     let filterComplex = 
       '[0:v]scale=1080:-2,setsar=1:1,boxblur=luma_radius=10:luma_power=1[bg];' +
@@ -63,8 +96,8 @@ app.post('/compose', upload.fields([
       `-map ${mapVideo}`,
       '-map 1:a',
       '-c:v libx264',
-      '-preset medium',
-      '-crf 23',
+      '-preset ultrafast', 
+      '-crf 28', 
       '-r 30',
       '-c:a aac',
       '-b:a 128k',
@@ -73,28 +106,47 @@ app.post('/compose', upload.fields([
       `"${outputPath}"`
     ].join(' ');
     
-    console.log('Processing video...');
-    await execAsync(ffmpegCmd, { maxBuffer: 50 * 1024 * 1024 });
+    console.log('Starting FFmpeg...');
+    console.log('Command:', ffmpegCmd.substring(0, 200) + '...');
+    
+    const { stdout, stderr } = await execAsync(ffmpegCmd, { 
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 240000 // 4 minute timeout
+    });
+    
+    console.log('FFmpeg completed in', Date.now() - startTime, 'ms');
     
     const stats = await fs.stat(outputPath);
+    console.log('Output size:', stats.size, 'bytes');
+    
+    if (!stats.isFile() || stats.size === 0) {
+      throw new Error('Output file is empty or missing');
+    }
+    
+    // Send file
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Length', stats.size);
+    res.setHeader('Content-Disposition', 'attachment; filename="composed.mp4"');
     
     const fileStream = require('fs').createReadStream(outputPath);
     fileStream.pipe(res);
     
     fileStream.on('end', async () => {
+      console.log('File sent successfully');
       try {
         await fs.unlink(videoPath);
         await fs.unlink(audioPath);
         await fs.unlink(outputPath);
+        console.log('Cleanup completed');
       } catch (err) {
         console.error('Cleanup error:', err);
       }
     });
     
   } catch (error) {
-    console.error('Error:', error);
+    console.error('=== ERROR ===');
+    console.error('Message:', error.message);
+    console.error('Stack:', error.stack);
     
     try {
       if (videoPath) await fs.unlink(videoPath);
@@ -103,12 +155,15 @@ app.post('/compose', upload.fields([
     } catch {}
     
     res.status(500).json({ 
-      error: error.message
+      error: error.message,
+      details: error.stderr || error.stdout || 'No details',
+      duration: Date.now() - startTime
     });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`FFmpeg service on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ FFmpeg service running on port ${PORT}`);
+  console.log(`Memory: ${JSON.stringify(process.memoryUsage())}`);
 });
