@@ -162,8 +162,29 @@ app.post('/compose', upload.fields([
   }
 });
 
+// En alttaki listen kısmını şöyle değiştir:
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
+
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ FFmpeg service running on port ${PORT}`);
-  console.log(`Memory: ${JSON.stringify(process.memoryUsage())}`);
+  console.log(`Memory on start:`, process.memoryUsage());
 });
+
+process.on('SIGTERM', () => {
+  console.log('⚠️  Received SIGTERM, shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed, exiting.');
+    process.exit(0);
+  });
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 Uncaught exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, p) => {
+  console.error('💥 Unhandled rejection:', reason);
+});
+
