@@ -1,27 +1,21 @@
-// server.js - FFmpeg Video Composition Service for Render.com
 const express = require('express');
 const multer = require('multer');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs').promises;
-const path = require('path');
 
 const execAsync = promisify(exec);
 const app = express();
 const upload = multer({ dest: '/tmp/' });
 
-// Health check endpoint
 app.get('/', (req, res) => {
   res.json({ 
     status: 'ok', 
-    service: 'FFmpeg Video Composition',
-    endpoints: {
-      compose: 'POST /compose - Compose video with audio and text overlay'
-    }
+    service: 'FFmpeg Video Composer',
+    provider: 'Railway (FREE)'
   });
 });
 
-// Main composition endpoint
 app.post('/compose', upload.fields([
   { name: 'video', maxCount: 1 },
   { name: 'audio', maxCount: 1 }
@@ -29,10 +23,9 @@ app.post('/compose', upload.fields([
   let videoPath, audioPath, outputPath;
   
   try {
-    // Validate uploads
-    if (!req.files || !req.files.video || !req.files.audio) {
+    if (!req.files?.video || !req.files?.audio) {
       return res.status(400).json({ 
-        error: 'Missing required files. Send video and audio as multipart form data' 
+        error: 'Missing video or audio file' 
       });
     }
 
@@ -42,7 +35,6 @@ app.post('/compose', upload.fields([
     
     const script = req.body.script || '';
     
-    // Build filter complex
     let filterComplex = 
       '[0:v]scale=1080:-2,setsar=1:1,boxblur=luma_radius=10:luma_power=1[bg];' +
       '[bg]crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2[cv]';
@@ -50,7 +42,6 @@ app.post('/compose', upload.fields([
     let mapVideo = '[cv]';
     
     if (script) {
-      // Escape script for FFmpeg
       const scriptEscaped = script
         .replace(/\\/g, '\\\\')
         .replace(/'/g, "'\\''")
@@ -64,10 +55,8 @@ app.post('/compose', upload.fields([
       mapVideo = '[final]';
     }
     
-    // Build FFmpeg command
     const ffmpegCmd = [
-      'ffmpeg',
-      '-y',
+      'ffmpeg', '-y',
       `-i "${videoPath}"`,
       `-i "${audioPath}"`,
       `-filter_complex "${filterComplex}"`,
@@ -84,30 +73,16 @@ app.post('/compose', upload.fields([
       `"${outputPath}"`
     ].join(' ');
     
-    console.log('Running FFmpeg...');
+    console.log('Processing video...');
+    await execAsync(ffmpegCmd, { maxBuffer: 50 * 1024 * 1024 });
     
-    // Execute FFmpeg
-    const { stdout, stderr } = await execAsync(ffmpegCmd, {
-      maxBuffer: 50 * 1024 * 1024 // 50MB buffer
-    });
-    
-    console.log('FFmpeg completed successfully');
-    
-    // Check if output file exists
     const stats = await fs.stat(outputPath);
-    if (!stats.isFile()) {
-      throw new Error('Output file was not created');
-    }
-    
-    // Send the video file
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Length', stats.size);
-    res.setHeader('Content-Disposition', 'attachment; filename="composed.mp4"');
     
     const fileStream = require('fs').createReadStream(outputPath);
     fileStream.pipe(res);
     
-    // Cleanup after sending
     fileStream.on('end', async () => {
       try {
         await fs.unlink(videoPath);
@@ -121,23 +96,19 @@ app.post('/compose', upload.fields([
   } catch (error) {
     console.error('Error:', error);
     
-    // Cleanup on error
     try {
       if (videoPath) await fs.unlink(videoPath);
       if (audioPath) await fs.unlink(audioPath);
       if (outputPath) await fs.unlink(outputPath);
-    } catch (cleanupErr) {
-      console.error('Cleanup error:', cleanupErr);
-    }
+    } catch {}
     
     res.status(500).json({ 
-      error: error.message,
-      details: error.stderr || error.stdout || 'No additional details'
+      error: error.message
     });
   }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`FFmpeg service running on port ${PORT}`);
+  console.log(`FFmpeg service on port ${PORT}`);
 });
