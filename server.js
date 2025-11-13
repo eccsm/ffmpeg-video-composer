@@ -12,14 +12,12 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 } 
 });
 
-// INCREASE REQUEST TIMEOUT
 app.use((req, res, next) => {
   req.setTimeout(300000); 
   res.setTimeout(300000); 
   next();
 });
 
-// Enable CORS for n8n
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -162,7 +160,10 @@ app.post('/compose', upload.fields([
   }
 });
 
-// En alttaki listen kısmını şöyle değiştir:
+console.log("🟦 Server starting...");
+console.log("Node version:", process.version);
+console.log("PWD:", process.cwd());
+console.log("PORT:", process.env.PORT);
 
 const PORT = process.env.PORT || 3000;
 
