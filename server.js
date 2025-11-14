@@ -164,12 +164,19 @@ class VideoDurationAnalyzer {
   }
 }
 
+// ============================================================================
+// FFMPEG FILTER BUILDER
+// ============================================================================
+
 class FilterBuilder {
-  constructor(baseWidth) {
+  constructor(baseWidth, videoDuration = null, audioDuration = null) {
     this.baseWidth = baseWidth;
     this.targetHeight = Math.round(baseWidth * 16 / 9);
     this.currentLabel = '[cv]';
     this.filters = [];
+    this.videoDuration = videoDuration;
+    this.audioDuration = audioDuration;
+    this.audioLabel = '1:a';
   }
 
   addBaseFilters() {
@@ -179,6 +186,45 @@ class FilterBuilder {
     this.filters.push(
       `[bg]crop=${this.baseWidth}:${this.targetHeight}:(in_w-${this.baseWidth})/2:(in_h-${this.targetHeight})/2[cv]`
     );
+    return this;
+  }
+
+  addAudioProcessing() {
+    if (!this.audioDuration || !this.videoDuration) {
+      console.log('Skipping audio processing - duration info not available');
+      return this;
+    }
+
+    if (this.audioDuration < this.videoDuration) {
+      const tempoFactor = this.audioDuration / this.videoDuration;
+      console.log(`Audio is shorter (${this.audioDuration}s vs ${this.videoDuration}s), tempo factor: ${tempoFactor.toFixed(3)}`);
+      
+      if (tempoFactor >= 0.5 && tempoFactor <= 2.0) {
+        this.filters.push(`[1:a]atempo=${tempoFactor.toFixed(3)}[aout]`);
+        this.audioLabel = '[aout]';
+        console.log('Audio will be slowed down to match video duration');
+      } else if (tempoFactor < 0.5) {
+        // Chain multiple atempo filters for very slow speeds
+        let chainedFilters = '[1:a]';
+        let remainingFactor = tempoFactor;
+        let filterIndex = 0;
+        
+        while (remainingFactor < 1.0) {
+          const thisFactor = Math.max(0.5, remainingFactor);
+          const nextLabel = remainingFactor / thisFactor >= 1.0 ? '[aout]' : `[atmp${filterIndex}]`;
+          this.filters.push(`${chainedFilters}atempo=${thisFactor.toFixed(3)}${nextLabel}`);
+          chainedFilters = nextLabel;
+          remainingFactor = remainingFactor / thisFactor;
+          filterIndex++;
+        }
+        
+        this.audioLabel = '[aout]';
+        console.log('Audio will be slowed down with chained filters');
+      }
+    } else {
+      console.log('Audio duration is sufficient, no processing needed');
+    }
+    
     return this;
   }
 
