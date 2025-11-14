@@ -107,13 +107,24 @@ class SubtitleProcessor {
   }
 
   static modifyAssStyles(assContent) {
-    // Basit: font büyüt + yukarı taşı
-    let modified = assContent
-      .replace(/Fontsize,56/g, 'Fontsize,72')
-      .replace(/MarginV,40/g, 'MarginV,180');
+  let modified = assContent;
 
-    return modified;
-  }
+  // Increase font size (e.g. 56 → 84, or any existing number)
+  modified = modified.replace(/Style:([^,]+),([^,]+),(\d+),/g, (match, name, font, size) => {
+    const newSize = Math.min(Number(size) + 28, 120); // +28 bigger
+    return `Style:${name},${font},${newSize},`;
+  });
+
+  // Increase MarginV everywhere (e.g. 40 → 260)
+  modified = modified.replace(/MarginV,?(\d+)/g, 'MarginV,260');
+
+  // Fix last-margin area inside style definitions
+  modified = modified.replace(/(\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,)(\d+)/g, (match, prefix, margin) => {
+    return `${prefix}260`;
+  });
+
+  return modified;
+}
 
   static escapeForFFmpeg(path) {
     return path
