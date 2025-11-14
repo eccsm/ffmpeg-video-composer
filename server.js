@@ -80,8 +80,8 @@ class SubtitleProcessor {
   static async processSubtitleFile(subtitlePath) {
     try {
       const content = await fs.readFile(subtitlePath, 'utf8');
-      
-      // Check if it's wrapped in JSON
+
+      // JSON wrapper olabilir
       let assContent = content;
       try {
         const parsed = JSON.parse(content);
@@ -91,16 +91,14 @@ class SubtitleProcessor {
           assContent = parsed[0].ass;
         }
       } catch {
-        // Not JSON, treat as raw ASS content
+        // JSON değilse raw ASS kabul ediyoruz
       }
 
-      // Modify ASS styling for bigger font and higher position
       assContent = this.modifyAssStyles(assContent);
 
-      // Write the extracted ASS content to a new file
       const processedPath = `${subtitlePath}_processed.ass`;
       await fs.writeFile(processedPath, assContent, 'utf8');
-      
+
       return processedPath;
     } catch (err) {
       console.error('Subtitle processing error:', err);
@@ -109,22 +107,11 @@ class SubtitleProcessor {
   }
 
   static modifyAssStyles(assContent) {
-    // Increase font size from 56 to 72 and adjust vertical margin from 40 to 180
-    // This moves subtitles higher up on the screen
-    // Remove Underline (was causing the line)
+    // Basit: font büyüt + yukarı taşı
     let modified = assContent
       .replace(/Fontsize,56/g, 'Fontsize,72')
-      .replace(/,Underline,/g, ',Underline,')
-      .replace(/Underline, Strikeout/g, 'Underline, Strikeout')
-      .replace(/,0,0,0,/g, ',0,0,180,')  // Change MarginV from 0 to 180
-      .replace(/MarginV,40/g, 'MarginV,180'); // Also handle if already specified
-    
-    // Fix underline in Style definition: change Underline from any value to 0
-    modified = modified.replace(
-      /(Style:.*?,.*?,.*?,.*?,.*?,.*?,.*?,.*?,-?\d+,0,)(\d+)/g,
-      '$10'
-    );
-    
+      .replace(/MarginV,40/g, 'MarginV,180');
+
     return modified;
   }
 
@@ -137,46 +124,15 @@ class SubtitleProcessor {
 }
 
 // ============================================================================
-// VIDEO DURATION ANALYZER
-// ============================================================================
-
-class VideoDurationAnalyzer {
-  static async getVideoDuration(videoPath) {
-    try {
-      const command = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`;
-      const { stdout } = await execAsync(command);
-      return parseFloat(stdout.trim());
-    } catch (error) {
-      console.error('Failed to get video duration:', error);
-      return null;
-    }
-  }
-
-  static async getAudioDuration(audioPath) {
-    try {
-      const command = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`;
-      const { stdout } = await execAsync(command);
-      return parseFloat(stdout.trim());
-    } catch (error) {
-      console.error('Failed to get audio duration:', error);
-      return null;
-    }
-  }
-}
-
-// ============================================================================
-// FFMPEG FILTER BUILDER
+// FFMPEG FILTER BUILDER (video only)
 // ============================================================================
 
 class FilterBuilder {
-  constructor(baseWidth, videoDuration = null, audioDuration = null) {
+  constructor(baseWidth) {
     this.baseWidth = baseWidth;
     this.targetHeight = Math.round(baseWidth * 16 / 9);
     this.currentLabel = '[cv]';
     this.filters = [];
-    this.videoDuration = videoDuration;
-    this.audioDuration = audioDuration;
-    this.audioLabel = '1:a';
   }
 
   addBaseFilters() {
@@ -189,56 +145,17 @@ class FilterBuilder {
     return this;
   }
 
-  addAudioProcessing() {
-    if (!this.audioDuration || !this.videoDuration) {
-      console.log('Skipping audio processing - duration info not available');
-      return this;
-    }
-
-    if (this.audioDuration < this.videoDuration) {
-      const tempoFactor = this.audioDuration / this.videoDuration;
-      console.log(`Audio is shorter (${this.audioDuration}s vs ${this.videoDuration}s), tempo factor: ${tempoFactor.toFixed(3)}`);
-      
-      if (tempoFactor >= 0.5 && tempoFactor <= 2.0) {
-        this.filters.push(`[1:a]atempo=${tempoFactor.toFixed(3)}[aout]`);
-        this.audioLabel = '[aout]';
-        console.log('Audio will be slowed down to match video duration');
-      } else if (tempoFactor < 0.5) {
-        // Chain multiple atempo filters for very slow speeds
-        let chainedFilters = '[1:a]';
-        let remainingFactor = tempoFactor;
-        let filterIndex = 0;
-        
-        while (remainingFactor < 1.0) {
-          const thisFactor = Math.max(0.5, remainingFactor);
-          const nextLabel = remainingFactor / thisFactor >= 1.0 ? '[aout]' : `[atmp${filterIndex}]`;
-          this.filters.push(`${chainedFilters}atempo=${thisFactor.toFixed(3)}${nextLabel}`);
-          chainedFilters = nextLabel;
-          remainingFactor = remainingFactor / thisFactor;
-          filterIndex++;
-        }
-        
-        this.audioLabel = '[aout]';
-        console.log('Audio will be slowed down with chained filters');
-      }
-    } else {
-      console.log('Audio duration is sufficient, no processing needed');
-    }
-    
-    return this;
-  }
-
   addSubtitles(subtitlePath) {
     if (!subtitlePath) return this;
 
     const escaped = SubtitleProcessor.escapeForFFmpeg(subtitlePath);
     const newLabel = '[subbed]';
-    
+
     this.filters.push(
       `${this.currentLabel}subtitles='${escaped}'${newLabel}`
     );
     this.currentLabel = newLabel;
-    
+
     console.log('Subtitles filter added for:', subtitlePath);
     return this;
   }
@@ -252,14 +169,14 @@ class FilterBuilder {
       .replace(/\n/g, '\\n');
 
     const newLabel = '[final]';
-    
+
     this.filters.push(
       `${this.currentLabel}drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:` +
       `text='${escaped}':x=(w-text_w)/2:y=h-400:fontsize=56:fontcolor=white:` +
       `box=1:boxcolor=black@0.45:boxborderw=20:line_spacing=20${newLabel}`
     );
     this.currentLabel = newLabel;
-    
+
     console.log('Text overlay added');
     return this;
   }
@@ -268,7 +185,6 @@ class FilterBuilder {
     return {
       filterComplex: this.filters.join(';'),
       outputLabel: this.currentLabel,
-      audioLabel: this.audioLabel,
     };
   }
 }
@@ -283,6 +199,9 @@ class FFmpegCommandBuilder {
     this.audioPath = audioPath;
     this.outputPath = outputPath;
     this.preset = null;
+    this.filterComplex = '';
+    this.outputLabel = '[cv]';
+    this.useShortest = false;
   }
 
   setQuality(preset) {
@@ -290,10 +209,14 @@ class FFmpegCommandBuilder {
     return this;
   }
 
-  setFilter(filterComplex, outputLabel, audioLabel = '1:a?') {
+  setFilter(filterComplex, outputLabel) {
     this.filterComplex = filterComplex;
     this.outputLabel = outputLabel;
-    this.audioLabel = audioLabel;
+    return this;
+  }
+
+  setUseShortest(flag) {
+    this.useShortest = !!flag;
     return this;
   }
 
@@ -302,7 +225,7 @@ class FFmpegCommandBuilder {
       throw new Error('Quality preset not set');
     }
 
-    return [
+    const args = [
       'ffmpeg',
       '-y',
       '-threads', '2',
@@ -311,7 +234,7 @@ class FFmpegCommandBuilder {
       `-i "${this.audioPath}"`,
       `-filter_complex "${this.filterComplex}"`,
       `-map ${this.outputLabel}`,
-      `-map ${this.audioLabel}`,
+      '-map 1:a?',                // audio’ya dokunmuyoruz
       '-c:v', 'libx264',
       '-preset', this.preset.videoPreset,
       '-crf', String(this.preset.videoCrf),
@@ -319,9 +242,19 @@ class FFmpegCommandBuilder {
       '-r', '30',
       '-c:a', 'aac',
       '-b:a', this.preset.audioBitrate,
+    ];
+
+    if (this.useShortest) {
+      // ✨ video/audio süresini en kısa stream’e kes
+      args.push('-shortest');
+    }
+
+    args.push(
       '-movflags', '+faststart',
-      `"${this.outputPath}"`,
-    ].join(' ');
+      `"${this.outputPath}"`
+    );
+
+    return args.join(' ');
   }
 }
 
@@ -331,37 +264,40 @@ class FFmpegCommandBuilder {
 
 class VideoComposer {
   async compose(videoPath, audioPath, options = {}) {
-    const { subtitlesPath, script, quality = 'draft' } = options;
+    const {
+      subtitlesPath,
+      script,
+      quality = 'draft',
+      cutMode = 'video', // 'audio' | 'shortest' | 'video'
+    } = options;
+
     const outputPath = FileManager.generateOutputPath();
-    
     const preset = QualityPresets.get(quality);
     let processedSubtitlePath = null;
 
     try {
-      // Get durations
-      const videoDuration = await VideoDurationAnalyzer.getVideoDuration(videoPath);
-      const audioDuration = await VideoDurationAnalyzer.getAudioDuration(audioPath);
-      
-      console.log(`Video duration: ${videoDuration}s, Audio duration: ${audioDuration}s`);
-
       // Process subtitles if provided
       if (subtitlesPath) {
         processedSubtitlePath = await SubtitleProcessor.processSubtitleFile(subtitlesPath);
         console.log('Subtitle processed:', processedSubtitlePath);
       }
 
-      // Build filter chain
-      const filterBuilder = new FilterBuilder(preset.baseWidth, videoDuration, audioDuration);
-      const { filterComplex, outputLabel, audioLabel } = filterBuilder
+      // Build video filter chain
+      const filterBuilder = new FilterBuilder(preset.baseWidth);
+      const { filterComplex, outputLabel } = filterBuilder
         .addBaseFilters()
         .addSubtitles(processedSubtitlePath)
         .addTextOverlay(script)
         .build();
 
+      const normalizedCut = String(cutMode || 'video').toLowerCase();
+      const useShortest = normalizedCut === 'audio' || normalizedCut === 'shortest';
+
       // Build and execute FFmpeg command
       const command = new FFmpegCommandBuilder(videoPath, audioPath, outputPath)
         .setQuality(preset)
-        .setFilter(filterComplex, outputLabel, audioLabel)
+        .setFilter(filterComplex, outputLabel)
+        .setUseShortest(useShortest)
         .build();
 
       console.log('Executing FFmpeg command...');
@@ -375,18 +311,16 @@ class VideoComposer {
       if (stdout) console.log('FFmpeg stdout (first 500):', stdout.slice(0, 500));
       if (stderr) console.log('FFmpeg stderr (first 500):', stderr.slice(0, 500));
 
-      // Validate output
       const isValid = await FileManager.validateFile(outputPath);
       if (!isValid) {
         throw new Error('Output file is empty or missing');
       }
 
-      return { 
-        outputPath, 
-        processedSubtitlePath 
+      return {
+        outputPath,
+        processedSubtitlePath,
       };
     } catch (error) {
-      // Cleanup on error
       await FileManager.cleanup([outputPath, processedSubtitlePath]);
       throw error;
     }
@@ -402,7 +336,7 @@ class CorsMiddleware {
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type');
-    
+
     if (req.method === 'OPTIONS') {
       return res.sendStatus(200);
     }
@@ -445,7 +379,6 @@ class ComposeRequestHandler {
         subtitles: req.files?.subtitles?.[0]?.size || 0,
       });
 
-      // Validate required files
       if (!req.files?.video || !req.files?.audio) {
         return res.status(400).json({
           error: 'Missing video or audio file',
@@ -453,12 +386,16 @@ class ComposeRequestHandler {
         });
       }
 
-      // Extract file paths
       filePaths.video = req.files.video[0].path;
       filePaths.audio = req.files.audio[0].path;
       filePaths.subtitles = req.files.subtitles?.[0]?.path;
 
-      // Compose video
+      // cutMode hem query’den hem body’den okunabilir
+      const cutMode =
+        (req.body.cutMode ||
+          req.query.cutMode ||
+          'video');
+
       const { outputPath, processedSubtitlePath } = await this.videoComposer.compose(
         filePaths.video,
         filePaths.audio,
@@ -466,6 +403,7 @@ class ComposeRequestHandler {
           subtitlesPath: filePaths.subtitles,
           script: req.body.script || '',
           quality: (req.body.quality || 'draft').toLowerCase(),
+          cutMode,
         }
       );
 
@@ -474,13 +412,12 @@ class ComposeRequestHandler {
 
       console.log('Composition completed in', Date.now() - startTime, 'ms');
 
-      // Send response
       const stats = await fs.stat(outputPath);
       console.log('Output size:', stats.size, 'bytes');
 
       res.setHeader('Content-Type', 'video/mp4');
       res.setHeader('Content-Length', stats.size);
-      res.setHeader('Content-Disposition', 'attachment; filename="composed.mp4"');
+      res.setHeader('Content-Disposition', 'attachment; filename="composed.mp4"`');
 
       const fileStream = require('fs').createReadStream(outputPath);
       fileStream.pipe(res);
@@ -490,7 +427,6 @@ class ComposeRequestHandler {
         await FileManager.cleanup(Object.values(filePaths));
         console.log('Cleanup completed');
       });
-
     } catch (error) {
       console.error('=== ERROR ===');
       console.error('Message:', error.message);
@@ -513,17 +449,14 @@ class ComposeRequestHandler {
 function createApp() {
   const app = express();
 
-  // Multer configuration
   const upload = multer({
     dest: '/tmp/',
     limits: { fileSize: ServerConfig.MAX_FILE_SIZE },
   });
 
-  // Middleware
   app.use(TimeoutMiddleware.handle);
   app.use(CorsMiddleware.handle);
 
-  // Health check
   app.get('/', (req, res) => {
     res.json({
       status: 'ok',
@@ -533,7 +466,6 @@ function createApp() {
     });
   });
 
-  // Compose endpoint
   const videoComposer = new VideoComposer();
   const requestHandler = new ComposeRequestHandler(videoComposer);
 
@@ -566,7 +498,6 @@ const server = app.listen(ServerConfig.PORT, ServerConfig.HOST, () => {
   console.log('Memory on start:', process.memoryUsage());
 });
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('⚠️  Received SIGTERM, shutting down gracefully...');
   server.close(() => {
