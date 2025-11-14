@@ -354,7 +354,6 @@ class VideoComposer {
       const filterBuilder = new FilterBuilder(preset.baseWidth, videoDuration, audioDuration);
       const { filterComplex, outputLabel, audioLabel } = filterBuilder
         .addBaseFilters()
-        .addAudioProcessing()
         .addSubtitles(processedSubtitlePath)
         .addTextOverlay(script)
         .build();
