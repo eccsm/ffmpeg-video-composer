@@ -81,18 +81,57 @@ class SubtitleProcessor {
     try {
       const content = await fs.readFile(subtitlePath, 'utf8');
 
-      // If it's JSON-wrapped, extract the .ass field
       let assContent = content;
+
       try {
         const parsed = JSON.parse(content);
-        if (parsed.ass) {
-          assContent = parsed.ass;
-        } else if (Array.isArray(parsed) && parsed[0]?.ass) {
-          assContent = parsed[0].ass;
+
+        const findAssLikeString = (value) => {
+          if (!value) return null;
+
+          if (typeof value === 'string') {
+            const hasScriptInfo = value.includes('[Script Info]');
+            const hasEvents = value.includes('[Events]');
+            if (hasScriptInfo && hasEvents) return value;
+            return null;
+          }
+
+          if (Array.isArray(value)) {
+            for (const v of value) {
+              const found = findAssLikeString(v);
+              if (found) return found;
+            }
+            return null;
+          }
+
+          if (typeof value === 'object') {
+            if (typeof value.ass === 'string') {
+              const found = findAssLikeString(value.ass);
+              if (found) return found;
+            }
+            if (value.output) {
+              const found = findAssLikeString(value.output);
+              if (found) return found;
+            }
+
+            for (const v of Object.values(value)) {
+              const found = findAssLikeString(v);
+              if (found) return found;
+            }
+          }
+          return null;
+        };
+
+        const foundAss = findAssLikeString(parsed);
+        if (foundAss) {
+          assContent = foundAss;
         }
       } catch {
-        // Not JSON → treat as raw ASS/SRT
+        // Not JSON → already raw ASS/SRT, keep as-is
       }
+
+      const preview = assContent.slice(0, 200).replace(/\n/g, '\\n');
+      console.log('ASS content preview:', preview);
 
       const processedPath = `${subtitlePath}_processed.ass`;
       await fs.writeFile(processedPath, assContent, 'utf8');
