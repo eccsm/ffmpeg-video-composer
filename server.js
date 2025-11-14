@@ -107,28 +107,20 @@ class SubtitleProcessor {
   }
 
   static modifyAssStyles(assContent) {
-  // 1) Font size: sadece fontsize değerini büyüt
-  assContent = assContent.replace(
-    /Style:(.*?),([^,]+),(\d+),/g,
-    (match, name, font, size) => {
-      const newSize = Math.min(Number(size) + 24, 120);
-      return `Style:${name},${font},${newSize},`;
-    }
-  );
-
-  // 2) MarginV: sadece dikey marjin, yatay marjinleri bozma
-  assContent = assContent.replace(
-    /Style:(.*?),([^,]*?,){9}(\d+),(\d+),(\d+)/g,
-    (match, prefix, skip, marginL, marginR, marginV) => {
-      return match.replace(/(\d+)$/, "260"); // sadece MarginV = 260
-    }
-  );
-
-  // 3) Ayrıca ASS içindeki diğer MarginV tanımlarını da güvenli şekilde değiştir
-  assContent = assContent.replace(/(MarginV=)(\d+)/g, '$1260');
-
-  return assContent;
-}
+    let modified = assContent
+      .replace(/Fontsize,56/g, 'Fontsize,72')
+      .replace(/,Underline,/g, ',Underline,')
+      .replace(/Underline, Strikeout/g, 'Underline, Strikeout')
+      .replace(/,0,0,0,/g, ',0,0,180,') 
+      .replace(/MarginV,40/g, 'MarginV,180'); 
+    
+    modified = modified.replace(
+      /(Style:.*?,.*?,.*?,.*?,.*?,.*?,.*?,.*?,-?\d+,0,)(\d+)/g,
+      '$10'
+    );
+    
+    return modified;
+  }
 
   static escapeForFFmpeg(path) {
     return path
