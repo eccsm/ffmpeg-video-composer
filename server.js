@@ -13,13 +13,13 @@ const app = express();
 const upload = multer({
   dest: '/tmp/',
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100 MB – biraz arttırdım
+    fileSize: 100 * 1024 * 1024,
   },
 });
 
 // ---- Global timeouts ----
 app.use((req, res, next) => {
-  const timeoutMs = 300000; // 5 dakika
+  const timeoutMs = 300000;
   req.setTimeout(timeoutMs);
   res.setTimeout(timeoutMs);
   next();
@@ -65,7 +65,7 @@ app.post(
   upload.fields([
     { name: 'video', maxCount: 1 },
     { name: 'audio', maxCount: 1 },
-    { name: 'subtitles', maxCount: 1 }, // ASS veya SRT
+    { name: 'subtitles', maxCount: 1 },
   ]),
   async (req, res) => {
     const startTime = Date.now();
@@ -102,25 +102,25 @@ app.post(
 
       // ---- QUALITY PRESETS ----
       const videoPreset = quality === 'high' ? 'medium' : 'ultrafast';
-      const videoCrf = quality === 'high' ? 20 : 28; // 20 = iyi kalite, 28 = hızlı / düşük kalite
+      const videoCrf = quality === 'high' ? 20 : 28;
       const audioBitrate = quality === 'high' ? '192k' : '128k';
-
-      // ---- FILTER COMPLEX CHAIN ----
+      const baseWidth = quality === 'high' ? 1080 : 720;
+      const targetHeight = Math.round(baseWidth * 16 / 9); // 9:16 dikey oran
+      
       let filterComplex =
-        '[0:v]scale=1080:-2,setsar=1:1,boxblur=luma_radius=10:luma_power=1[bg];' +
-        '[bg]crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2[cv]';
+        `[0:v]scale=${baseWidth}:-2,setsar=1:1,boxblur=luma_radius=10:luma_power=1[bg];` +
+        `[bg]crop=${baseWidth}:${targetHeight}:(in_w-${baseWidth})/2:(in_h-${targetHeight})/2[cv]`;
 
       // currentLabel her adımda son video label'ı gösteriyor
       let currentLabel = '[cv]';
 
-      // 1) Karaoke subtitles (ASS veya SRT)
+      // 1) Karaoke subtitles
       if (subtitlesPath) {
         const subsEscaped = subtitlesPath
           .replace(/\\/g, '\\\\')
           .replace(/'/g, "'\\''");
 
-        // subtitles filtresi: ASS içindeki karaoke efektlerini de uygular
-        // not: charenc gerekiyorsa :charenc=UTF-8 eklenebilir
+
         filterComplex += `;${currentLabel}subtitles='${subsEscaped}'[subbed]`;
         currentLabel = '[subbed]';
         console.log('Subtitles filter enabled');
@@ -153,27 +153,25 @@ app.post(
       const ffmpegCmd = [
         'ffmpeg',
         '-y',
+        '-threads', '2',                  
+        '-loglevel', 'info',
         `-i "${videoPath}"`,
         `-i "${audioPath}"`,
         `-filter_complex "${filterComplex}"`,
         `-map ${mapVideo}`,
-        '-map 1:a?', // audio yoksa hata vermesin
-        '-c:v libx264',
-        '-preset',
-        videoPreset,
-        '-crf',
-        String(videoCrf),
-        '-r',
-        '30',
-        '-c:a',
-        'aac',
-        '-b:a',
-        audioBitrate,
+        '-map 1:a?',                      
+        '-c:v', 'libx264',
+        '-preset', videoPreset,           
+        '-crf', String(videoCrf),         
+        '-x264-params', 'threads=2',      
+        '-r', '30',
+        '-c:a', 'aac',
+        '-b:a', audioBitrate,
         '-shortest',
-        '-movflags',
-        '+faststart',
-        `"${outputPath}"`,
+        '-movflags', '+faststart',
+        `"${outputPath}"`
       ].join(' ');
+
 
       console.log('Starting FFmpeg...');
       console.log('FFmpeg command:\n', ffmpegCmd);
