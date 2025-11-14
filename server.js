@@ -81,7 +81,7 @@ class SubtitleProcessor {
     try {
       const content = await fs.readFile(subtitlePath, 'utf8');
 
-      // JSON wrapper olabilir
+      // If it's JSON-wrapped, extract the .ass field
       let assContent = content;
       try {
         const parsed = JSON.parse(content);
@@ -91,35 +91,16 @@ class SubtitleProcessor {
           assContent = parsed[0].ass;
         }
       } catch {
-        // JSON değilse raw ASS kabul ediyoruz
+        // Not JSON → treat as raw ASS/SRT
       }
-
-      assContent = this.modifyAssStyles(assContent);
 
       const processedPath = `${subtitlePath}_processed.ass`;
       await fs.writeFile(processedPath, assContent, 'utf8');
-
       return processedPath;
     } catch (err) {
       console.error('Subtitle processing error:', err);
       throw new Error('Failed to process subtitle file');
     }
-  }
-
-  static modifyAssStyles(assContent) {
-    let modified = assContent
-      .replace(/Fontsize,56/g, 'Fontsize,72')
-      .replace(/,Underline,/g, ',Underline,')
-      .replace(/Underline, Strikeout/g, 'Underline, Strikeout')
-      .replace(/,0,0,0,/g, ',0,0,180,') 
-      .replace(/MarginV,40/g, 'MarginV,180'); 
-    
-    modified = modified.replace(
-      /(Style:.*?,.*?,.*?,.*?,.*?,.*?,.*?,.*?,-?\d+,0,)(\d+)/g,
-      '$10'
-    );
-    
-    return modified;
   }
 
   static escapeForFFmpeg(path) {
@@ -152,20 +133,24 @@ class FilterBuilder {
     return this;
   }
 
-  addSubtitles(subtitlePath) {
+    addSubtitles(subtitlePath) {
     if (!subtitlePath) return this;
 
     const escaped = SubtitleProcessor.escapeForFFmpeg(subtitlePath);
     const newLabel = '[subbed]';
 
-    this.filters.push(
-      `${this.currentLabel}subtitles='${escaped}'${newLabel}`
-    );
-    this.currentLabel = newLabel;
+    const style =
+      'Fontsize=72,MarginV=180,Outline=2,Shadow=0,Alignment=2';
 
+    this.filters.push(
+      `${this.currentLabel}subtitles='${escaped}':charenc=UTF-8:force_style='${style}'${newLabel}`
+    );
+
+    this.currentLabel = newLabel;
     console.log('Subtitles filter added for:', subtitlePath);
     return this;
   }
+
 
   addTextOverlay(text) {
     if (!text) return this;
