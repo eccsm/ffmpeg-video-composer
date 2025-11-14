@@ -24,16 +24,16 @@ class ServerConfig {
 class QualityPresets {
   static PRESETS = {
     high: {
-      videoPreset: 'medium',
-      videoCrf: 20,
-      audioBitrate: '192k',
+      videoPreset: 'fast',
+      videoCrf: 18,
+      audioBitrate: '256k',
       baseWidth: 1080,
     },
     draft: {
-      videoPreset: 'ultrafast',
-      videoCrf: 28,
-      audioBitrate: '128k',
-      baseWidth: 720,
+      videoPreset: 'veryfast',
+      videoCrf: 23,
+      audioBitrate: '192k',
+      baseWidth: 1080,
     },
   };
 
@@ -94,6 +94,9 @@ class SubtitleProcessor {
         // Not JSON, treat as raw ASS content
       }
 
+      // Modify ASS styling for bigger font and higher position
+      assContent = this.modifyAssStyles(assContent);
+
       // Write the extracted ASS content to a new file
       const processedPath = `${subtitlePath}_processed.ass`;
       await fs.writeFile(processedPath, assContent, 'utf8');
@@ -103,6 +106,16 @@ class SubtitleProcessor {
       console.error('Subtitle processing error:', err);
       throw new Error('Failed to process subtitle file');
     }
+  }
+
+  static modifyAssStyles(assContent) {
+    // Increase font size from 56 to 72 and adjust vertical margin from 40 to 180
+    // This moves subtitles higher up on the screen
+    return assContent
+      .replace(/Fontsize,56/g, 'Fontsize,72')
+      .replace(/MarginV, Effect/g, 'MarginV, Effect')
+      .replace(/,0,0,0,/g, ',0,0,180,')  // Change MarginV from 0 to 180
+      .replace(/MarginV,40/g, 'MarginV,180'); // Also handle if already specified
   }
 
   static escapeForFFmpeg(path) {
