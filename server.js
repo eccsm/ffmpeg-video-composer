@@ -81,8 +81,8 @@ class SubtitleProcessor {
     try {
       const content = await fs.readFile(subtitlePath, 'utf8');
 
+      // 1) Try to JSON-parse and find an ASS-looking string anywhere
       let assContent = content;
-
       try {
         const parsed = JSON.parse(content);
 
@@ -105,6 +105,7 @@ class SubtitleProcessor {
           }
 
           if (typeof value === 'object') {
+            // common keys first
             if (typeof value.ass === 'string') {
               const found = findAssLikeString(value.ass);
               if (found) return found;
@@ -127,7 +128,22 @@ class SubtitleProcessor {
           assContent = foundAss;
         }
       } catch {
-        // Not JSON → already raw ASS/SRT, keep as-is
+        // Not JSON → already some kind of subtitle text
+      }
+
+      if (!assContent.includes('\n') &&
+          assContent.includes('[Script Info]') &&
+          assContent.includes('[Events]')) {
+
+        assContent = assContent
+          .replace('[Script Info] ', '[Script Info]\n')
+          .replace(' PlayResX:', '\nScriptType: v4.00+\nPlayResX:')
+          .replace(' PlayResY:', '\nPlayResY:')
+          .replace(' [V4+ Styles] ', '\n\n[V4+ Styles]\n')
+          .replace(' Encoding ', ' Encoding\n\n')
+          .replace(' [Events] ', '\n\n[Events]\n');
+
+        assContent = assContent.replace(/Dialogue:/g, '\nDialogue:').trim();
       }
 
       const preview = assContent.slice(0, 200).replace(/\n/g, '\\n');
