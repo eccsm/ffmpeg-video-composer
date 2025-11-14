@@ -107,23 +107,27 @@ class SubtitleProcessor {
   }
 
   static modifyAssStyles(assContent) {
-  let modified = assContent;
+  // 1) Font size: sadece fontsize değerini büyüt
+  assContent = assContent.replace(
+    /Style:(.*?),([^,]+),(\d+),/g,
+    (match, name, font, size) => {
+      const newSize = Math.min(Number(size) + 24, 120);
+      return `Style:${name},${font},${newSize},`;
+    }
+  );
 
-  // Increase font size (e.g. 56 → 84, or any existing number)
-  modified = modified.replace(/Style:([^,]+),([^,]+),(\d+),/g, (match, name, font, size) => {
-    const newSize = Math.min(Number(size) + 28, 120); // +28 bigger
-    return `Style:${name},${font},${newSize},`;
-  });
+  // 2) MarginV: sadece dikey marjin, yatay marjinleri bozma
+  assContent = assContent.replace(
+    /Style:(.*?),([^,]*?,){9}(\d+),(\d+),(\d+)/g,
+    (match, prefix, skip, marginL, marginR, marginV) => {
+      return match.replace(/(\d+)$/, "260"); // sadece MarginV = 260
+    }
+  );
 
-  // Increase MarginV everywhere (e.g. 40 → 260)
-  modified = modified.replace(/MarginV,?(\d+)/g, 'MarginV,260');
+  // 3) Ayrıca ASS içindeki diğer MarginV tanımlarını da güvenli şekilde değiştir
+  assContent = assContent.replace(/(MarginV=)(\d+)/g, '$1260');
 
-  // Fix last-margin area inside style definitions
-  modified = modified.replace(/(\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,\w+,)(\d+)/g, (match, prefix, margin) => {
-    return `${prefix}260`;
-  });
-
-  return modified;
+  return assContent;
 }
 
   static escapeForFFmpeg(path) {
