@@ -111,11 +111,21 @@ class SubtitleProcessor {
   static modifyAssStyles(assContent) {
     // Increase font size from 56 to 72 and adjust vertical margin from 40 to 180
     // This moves subtitles higher up on the screen
-    return assContent
+    // Remove Underline (was causing the line)
+    let modified = assContent
       .replace(/Fontsize,56/g, 'Fontsize,72')
-      .replace(/MarginV, Effect/g, 'MarginV, Effect')
+      .replace(/,Underline,/g, ',Underline,')
+      .replace(/Underline, Strikeout/g, 'Underline, Strikeout')
       .replace(/,0,0,0,/g, ',0,0,180,')  // Change MarginV from 0 to 180
       .replace(/MarginV,40/g, 'MarginV,180'); // Also handle if already specified
+    
+    // Fix underline in Style definition: change Underline from any value to 0
+    modified = modified.replace(
+      /(Style:.*?,.*?,.*?,.*?,.*?,.*?,.*?,.*?,-?\d+,0,)(\d+)/g,
+      '$10'
+    );
+    
+    return modified;
   }
 
   static escapeForFFmpeg(path) {
@@ -127,8 +137,32 @@ class SubtitleProcessor {
 }
 
 // ============================================================================
-// FFMPEG FILTER BUILDER
+// VIDEO DURATION ANALYZER
 // ============================================================================
+
+class VideoDurationAnalyzer {
+  static async getVideoDuration(videoPath) {
+    try {
+      const command = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`;
+      const { stdout } = await execAsync(command);
+      return parseFloat(stdout.trim());
+    } catch (error) {
+      console.error('Failed to get video duration:', error);
+      return null;
+    }
+  }
+
+  static async getAudioDuration(audioPath) {
+    try {
+      const command = `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`;
+      const { stdout } = await execAsync(command);
+      return parseFloat(stdout.trim());
+    } catch (error) {
+      console.error('Failed to get audio duration:', error);
+      return null;
+    }
+  }
+}
 
 class FilterBuilder {
   constructor(baseWidth) {
@@ -188,6 +222,7 @@ class FilterBuilder {
     return {
       filterComplex: this.filters.join(';'),
       outputLabel: this.currentLabel,
+      audioLabel: this.audioLabel,
     };
   }
 }
@@ -209,9 +244,10 @@ class FFmpegCommandBuilder {
     return this;
   }
 
-  setFilter(filterComplex, outputLabel) {
+  setFilter(filterComplex, outputLabel, audioLabel = '1:a?') {
     this.filterComplex = filterComplex;
     this.outputLabel = outputLabel;
+    this.audioLabel = audioLabel;
     return this;
   }
 
@@ -229,7 +265,7 @@ class FFmpegCommandBuilder {
       `-i "${this.audioPath}"`,
       `-filter_complex "${this.filterComplex}"`,
       `-map ${this.outputLabel}`,
-      '-map 1:a?',
+      `-map ${this.audioLabel}`,
       '-c:v', 'libx264',
       '-preset', this.preset.videoPreset,
       '-crf', String(this.preset.videoCrf),
@@ -237,7 +273,6 @@ class FFmpegCommandBuilder {
       '-r', '30',
       '-c:a', 'aac',
       '-b:a', this.preset.audioBitrate,
-      '-shortest',
       '-movflags', '+faststart',
       `"${this.outputPath}"`,
     ].join(' ');
@@ -257,6 +292,12 @@ class VideoComposer {
     let processedSubtitlePath = null;
 
     try {
+      // Get durations
+      const videoDuration = await VideoDurationAnalyzer.getVideoDuration(videoPath);
+      const audioDuration = await VideoDurationAnalyzer.getAudioDuration(audioPath);
+      
+      console.log(`Video duration: ${videoDuration}s, Audio duration: ${audioDuration}s`);
+
       // Process subtitles if provided
       if (subtitlesPath) {
         processedSubtitlePath = await SubtitleProcessor.processSubtitleFile(subtitlesPath);
@@ -264,9 +305,10 @@ class VideoComposer {
       }
 
       // Build filter chain
-      const filterBuilder = new FilterBuilder(preset.baseWidth);
-      const { filterComplex, outputLabel } = filterBuilder
+      const filterBuilder = new FilterBuilder(preset.baseWidth, videoDuration, audioDuration);
+      const { filterComplex, outputLabel, audioLabel } = filterBuilder
         .addBaseFilters()
+        .addAudioProcessing()
         .addSubtitles(processedSubtitlePath)
         .addTextOverlay(script)
         .build();
@@ -274,7 +316,7 @@ class VideoComposer {
       // Build and execute FFmpeg command
       const command = new FFmpegCommandBuilder(videoPath, audioPath, outputPath)
         .setQuality(preset)
-        .setFilter(filterComplex, outputLabel)
+        .setFilter(filterComplex, outputLabel, audioLabel)
         .build();
 
       console.log('Executing FFmpeg command...');
