@@ -17,7 +17,7 @@ class ServerConfig {
   static HOST = '0.0.0.0';
   static TIMEOUT_MS = 300000;
   static MAX_FILE_SIZE = 100 * 1024 * 1024;
-  static MAX_BUFFER = 50 * 1024 * 1024;
+  static MAX_BUFFER = 500 * 1024 * 1024;
   static FFMPEG_TIMEOUT = 240000;
 }
 
@@ -281,7 +281,7 @@ class FFmpegCommandBuilder {
       `-i "${this.audioPath}"`,
       `-filter_complex "${this.filterComplex}"`,
       `-map ${this.outputLabel}`,
-      '-map 1:a?',                // audio’ya dokunmuyoruz
+      '-map 1:a?',                
       '-c:v', 'libx264',
       '-preset', this.preset.videoPreset,
       '-crf', String(this.preset.videoCrf),
@@ -292,7 +292,6 @@ class FFmpegCommandBuilder {
     ];
 
     if (this.useShortest) {
-      // ✨ video/audio süresini en kısa stream’e kes
       args.push('-shortest');
     }
 
@@ -315,7 +314,7 @@ class VideoComposer {
       subtitlesPath,
       script,
       quality = 'draft',
-      cutMode = 'video', // 'audio' | 'shortest' | 'video'
+      cutMode = 'video',
     } = options;
 
     const outputPath = FileManager.generateOutputPath();
@@ -437,7 +436,6 @@ class ComposeRequestHandler {
       filePaths.audio = req.files.audio[0].path;
       filePaths.subtitles = req.files.subtitles?.[0]?.path;
 
-      // cutMode hem query’den hem body’den okunabilir
       const cutMode =
         (req.body.cutMode ||
           req.query.cutMode ||
