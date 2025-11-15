@@ -184,8 +184,10 @@ class FilterBuilder {
       `[0:v]scale=-2:${this.targetHeight}:force_original_aspect_ratio=increase,` +
       `setsar=1:1,` +
       `crop=${this.baseWidth}:${this.targetHeight}:(iw-${this.baseWidth})/2:0,` +
-      `boxblur=luma_radius=10:luma_power=1[bg]`
+      `boxblur=luma_radius=10:luma_power=1[cv]`
     );
+
+    this.currentLabel = '[cv]';
     
     return this;
   }
