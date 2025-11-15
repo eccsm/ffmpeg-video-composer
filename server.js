@@ -16,8 +16,8 @@ class ServerConfig {
   static PORT = process.env.PORT || 3000;
   static HOST = '0.0.0.0';
   static TIMEOUT_MS = 300000;
-  static MAX_FILE_SIZE = 100 * 1024 * 1024;
-  static MAX_BUFFER = 500 * 1024 * 1024;
+  static MAX_FILE_SIZE = 500 * 1024 * 1024;
+  static MAX_BUFFER = 50 * 1024 * 1024;
   static FFMPEG_TIMEOUT = 240000;
 }
 
