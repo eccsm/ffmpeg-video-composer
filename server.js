@@ -173,18 +173,20 @@ class SubtitleProcessor {
 class FilterBuilder {
   constructor(baseWidth) {
     this.baseWidth = baseWidth;
-    this.targetHeight = Math.round(baseWidth * 16 / 9);
+    this.targetHeight = 1920;
     this.currentLabel = '[cv]';
     this.filters = [];
   }
 
   addBaseFilters() {
+    
     this.filters.push(
-      `[0:v]scale=${this.baseWidth}:-2,setsar=1:1,boxblur=luma_radius=10:luma_power=1[bg]`
+      `[0:v]scale=-2:${this.targetHeight}:force_original_aspect_ratio=increase,` +
+      `setsar=1:1,` +
+      `crop=${this.baseWidth}:${this.targetHeight}:(iw-${this.baseWidth})/2:0,` +
+      `boxblur=luma_radius=10:luma_power=1[bg]`
     );
-    this.filters.push(
-      `[bg]crop=${this.baseWidth}:${this.targetHeight}:(in_w-${this.baseWidth})/2:(in_h-${this.targetHeight})/2[cv]`
-    );
+    
     return this;
   }
 
