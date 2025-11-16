@@ -81,7 +81,6 @@ class SubtitleProcessor {
     try {
       const content = await fs.readFile(subtitlePath, 'utf8');
 
-      // 1) Try to JSON-parse and find an ASS-looking string anywhere
       let assContent = content;
       try {
         const parsed = JSON.parse(content);
@@ -105,7 +104,6 @@ class SubtitleProcessor {
           }
 
           if (typeof value === 'object') {
-            // common keys first
             if (typeof value.ass === 'string') {
               const found = findAssLikeString(value.ass);
               if (found) return found;
@@ -128,7 +126,7 @@ class SubtitleProcessor {
           assContent = foundAss;
         }
       } catch {
-        // Not JSON → already some kind of subtitle text
+        // Not JSON → already subtitle text
       }
 
       if (!assContent.includes('\n') &&
@@ -167,7 +165,7 @@ class SubtitleProcessor {
 }
 
 // ============================================================================
-// FFMPEG FILTER BUILDER (video only)
+// FFMPEG FILTER BUILDER (Clean Version - No Blur)
 // ============================================================================
 
 class FilterBuilder {
@@ -179,37 +177,35 @@ class FilterBuilder {
   }
 
   addBaseFilters() {
-    
     this.filters.push(
       `[0:v]scale=-2:${this.targetHeight}:force_original_aspect_ratio=increase,` +
       `setsar=1:1,` +
-      `crop=${this.baseWidth}:${this.targetHeight}:(iw-${this.baseWidth})/2:0,` +
-      `boxblur=luma_radius=10:luma_power=1[cv]`
+      `crop=${this.baseWidth}:${this.targetHeight}:(iw-${this.baseWidth})/2:0[cv]`
     );
 
     this.currentLabel = '[cv]';
+    console.log('✨ Clean background filter applied (no blur)');
     
     return this;
   }
 
-    addSubtitles(subtitlePath) {
+  addSubtitles(subtitlePath) {
     if (!subtitlePath) return this;
 
     const escaped = SubtitleProcessor.escapeForFFmpeg(subtitlePath);
     const newLabel = '[subbed]';
 
     const style =
-      'Fontsize=72,MarginV=180,Outline=2,Shadow=0,Alignment=2';
+      'Fontsize=72,MarginV=180,Outline=3,Shadow=1,Alignment=2,Bold=1';
 
     this.filters.push(
       `${this.currentLabel}subtitles='${escaped}':charenc=UTF-8:force_style='${style}'${newLabel}`
     );
 
     this.currentLabel = newLabel;
-    console.log('Subtitles filter added for:', subtitlePath);
+    console.log('📝 Subtitles filter added for:', subtitlePath);
     return this;
   }
-
 
   addTextOverlay(text) {
     if (!text) return this;
@@ -224,11 +220,11 @@ class FilterBuilder {
     this.filters.push(
       `${this.currentLabel}drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:` +
       `text='${escaped}':x=(w-text_w)/2:y=h-400:fontsize=56:fontcolor=white:` +
-      `box=1:boxcolor=black@0.45:boxborderw=20:line_spacing=20${newLabel}`
+      `box=1:boxcolor=black@0.5:boxborderw=22:line_spacing=20${newLabel}`
     );
     this.currentLabel = newLabel;
 
-    console.log('Text overlay added');
+    console.log('✍️  Text overlay added');
     return this;
   }
 
@@ -326,13 +322,11 @@ class VideoComposer {
     let processedSubtitlePath = null;
 
     try {
-      // Process subtitles if provided
       if (subtitlesPath) {
         processedSubtitlePath = await SubtitleProcessor.processSubtitleFile(subtitlesPath);
         console.log('Subtitle processed:', processedSubtitlePath);
       }
 
-      // Build video filter chain
       const filterBuilder = new FilterBuilder(preset.baseWidth);
       const { filterComplex, outputLabel } = filterBuilder
         .addBaseFilters()
@@ -343,14 +337,13 @@ class VideoComposer {
       const normalizedCut = String(cutMode || 'video').toLowerCase();
       const useShortest = normalizedCut === 'audio' || normalizedCut === 'shortest';
 
-      // Build and execute FFmpeg command
       const command = new FFmpegCommandBuilder(videoPath, audioPath, outputPath)
         .setQuality(preset)
         .setFilter(filterComplex, outputLabel)
         .setUseShortest(useShortest)
         .build();
 
-      console.log('Executing FFmpeg command...');
+      console.log('🎬 Executing FFmpeg command...');
       console.log('Command:', command);
 
       const { stdout, stderr } = await execAsync(command, {
@@ -459,22 +452,22 @@ class ComposeRequestHandler {
       filePaths.output = outputPath;
       filePaths.processedSubtitles = processedSubtitlePath;
 
-      console.log('Composition completed in', Date.now() - startTime, 'ms');
+      console.log('✅ Composition completed in', Date.now() - startTime, 'ms');
 
       const stats = await fs.stat(outputPath);
-      console.log('Output size:', stats.size, 'bytes');
+      console.log('📦 Output size:', stats.size, 'bytes');
 
       res.setHeader('Content-Type', 'video/mp4');
       res.setHeader('Content-Length', stats.size);
-      res.setHeader('Content-Disposition', 'attachment; filename="composed.mp4"`');
+      res.setHeader('Content-Disposition', 'attachment; filename="composed.mp4"');
 
       const fileStream = require('fs').createReadStream(outputPath);
       fileStream.pipe(res);
 
       fileStream.on('end', async () => {
-        console.log('File sent successfully');
+        console.log('📤 File sent successfully');
         await FileManager.cleanup(Object.values(filePaths));
-        console.log('Cleanup completed');
+        console.log('🧹 Cleanup completed');
       });
     } catch (error) {
       console.error('=== ERROR ===');
@@ -509,7 +502,7 @@ function createApp() {
   app.get('/', (req, res) => {
     res.json({
       status: 'ok',
-      service: 'FFmpeg Video Composer',
+      service: 'FFmpeg Video Composer (Clean Background)',
       uptime: process.uptime(),
       memory: process.memoryUsage(),
     });
@@ -544,6 +537,7 @@ const app = createApp();
 
 const server = app.listen(ServerConfig.PORT, ServerConfig.HOST, () => {
   console.log(`✅ FFmpeg service running on port ${ServerConfig.PORT}`);
+  console.log('✨ Clean background mode enabled (no blur)');
   console.log('Memory on start:', process.memoryUsage());
 });
 
